@@ -65,7 +65,7 @@ def testVec() -> tuple[bool, list[str]]:
 		tvec = tvec / np.linalg.norm(tvec)
 
 		try:
-			db.vecs.save(tid, tvec, confirm=False)
+			db.vecs.save(tid, tvec, "__healthcheck__", confirm=False)
 
 			vec = db.vecs.getVec(tid)
 			if not vec: return False, ['Vector retrieval failed after save']

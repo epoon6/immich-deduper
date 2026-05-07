@@ -39,14 +39,11 @@ class DashTask(BseTsk):
 		#------------------------------------
 		def report(pct: int, msg: str):
 			if doReport: doReport(pct, f"{msg}")
-			# lg.info(f"[Task] id[{self.tskId}] progress: {percent}% - {label} - {msg}")
 
 		#------------------------------------
 		try:
 			rst = self.fn(report, self.store)
-
 			if len(rst) != 2: raise RuntimeError(f"[Task] name[{self.name}] fn shound returned 2values now[ {len(rst)} ]")
-
 			sto, msg = rst
 			return sto if sto else self.store, msg
 		except Exception as e:

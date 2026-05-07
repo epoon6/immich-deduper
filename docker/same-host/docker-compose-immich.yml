@@ -26,20 +26,18 @@ services:
 
   database:
     container_name: immich_postgres
-    # ports:
-    #   - "5433:5432"
 #------------------------------------------------
 # Modification 1: Add networks to enable communication with immich-deduper
 #------------------------------------------------
     networks:
       - immich-deduper
+      - default
       #------------------------------------------------
-      # Note: On some Docker environments, you might need to add '- default' to keep
+      # Note: For most Docker environments, you need to add '- default' to keep
       # the database in both the default network and immich-deduper network.
       # This ensures other Immich services can still connect to the database.
       # See: https://github.com/RazgrizHsu/immich-deduper/issues/30
       #------------------------------------------------
-      # - default  # Uncomment if Immich services cannot connect to the database
 
 #------------------------------------------------
 # Modification 2: Add global networks section to declare external network usage

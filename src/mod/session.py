@@ -38,8 +38,7 @@ def render():
 	cnt.refreshFromDB()
 
 
-	photoQ = dto.photoQ
-	if not photoQ or photoQ not in [ks.db.thumbnail, ks.db.preview]: dto.photoQ = ks.db.thumbnail
+	dto.photoQ = ks.db.thumbnail
 
 	from conf import co
 	dto.thMin = co.vad.float(dto.thMin, 0.93, mi=0.50, mx=1.0)

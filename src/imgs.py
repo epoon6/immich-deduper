@@ -235,7 +235,7 @@ def saveVectorBy(asset: models.Asset, photoQ) -> Tuple[models.Asset, Optional[st
 		vec = extractFeatures(img)
 		if vec is None: return asset, f"feature extraction failed: {asset.id} - cannot extract features"
 
-		db.vecs.save(asset.autoId, vec)
+		db.vecs.save(asset.autoId, vec, asset.id)
 
 		return asset, None
 	except Exception as e:
@@ -297,7 +297,7 @@ def saveVectorBatch(assets: List[models.Asset], photoQ, preloaded=None) -> List[
 
 		for asset, vec in zip(rstOKs, vecs):
 			try:
-				db.vecs.save(asset.autoId, vec)
+				db.vecs.save(asset.autoId, vec, asset.id)
 				results.append((asset, None))
 			except Exception as e:
 				errMsg = str(e)
@@ -311,7 +311,7 @@ def saveVectorBatch(assets: List[models.Asset], photoQ, preloaded=None) -> List[
 			try:
 				if idx < len(imgs):
 					vec = extractFeatures(imgs[idx])
-					db.vecs.save(asset.autoId, vec)
+					db.vecs.save(asset.autoId, vec, asset.id)
 					results.append((asset, None))
 				else: results.append((asset, f"image loading failed: {asset.id} - no corresponding image"))
 			except Exception as fallback_e:
@@ -433,7 +433,7 @@ def processVectors(assets: List[models.Asset], photoQ, onUpdate: models.IFnProg,
 							updAssets = []
 							with db.pics.mkConn() as conn:
 								cur = conn.cursor()
-								for a in assetsBatch: db.pics.setVectoredBy(a, cur=cur)
+								db.pics.setVectoredBy(assetsBatch, cur=cur)
 								conn.commit()
 
 						currentTime = time.time()
@@ -524,7 +524,7 @@ def processVectors(assets: List[models.Asset], photoQ, onUpdate: models.IFnProg,
 								updAssets = []
 								with db.pics.mkConn() as conn:
 									cur = conn.cursor()
-									for a in assetsBatch: db.pics.setVectoredBy(a, cur=cur)
+									db.pics.setVectoredBy(assetsBatch, cur=cur)
 									conn.commit()
 
 							currentTime = time.time()
@@ -572,7 +572,7 @@ def processVectors(assets: List[models.Asset], photoQ, onUpdate: models.IFnProg,
 		if updAssets:
 			with db.pics.mkConn() as conn:
 				cur = conn.cursor()
-				for asset in updAssets: db.pics.setVectoredBy(asset, cur=cur)
+				db.pics.setVectoredBy(updAssets, cur=cur)
 				conn.commit()
 
 		if isCancelled and isCancelled():

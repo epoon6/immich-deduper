@@ -35,10 +35,10 @@ class Cnt(BaseDictModel):
     def refreshFromDB(self):
         import db
         self.ass = db.pics.count()
-        self.vec = db.vecs.count()
+        self.vec = db.pics.count(vectored=1)
         self.simOk = db.pics.countSimOk(1)
         self.simNo = db.pics.countSimOk(0)
-        self.simPnd = db.pics.countSimPending();
+        self.simPnd = db.pics.countSimPending()
 
     @classmethod
     def mkNewCnt(cls) -> 'Cnt':

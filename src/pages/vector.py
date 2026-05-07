@@ -15,7 +15,6 @@ dash.register_page(
 )
 
 class K:
-	selectQ = "vector-selectPhotoQ"
 	btnDoVec = "vector-btnDoVec"
 	btnClear = "vector-btnClear"
 
@@ -34,31 +33,24 @@ def layout():
 		dbc.Row([
 			dbc.Col([
 				dbc.Card([
-					dbc.CardHeader("Processing Settings"),
+					dbc.CardHeader("Pipeline Steps"),
 					dbc.CardBody([
-						dbc.Row([
-							dbc.Col([
-								dbc.Label("Photo Quality"),
-								dbc.Select(
-									id=K.selectQ,
-									options=[
-										{"label": "Thumbnail (Fast)", "value": ks.db.thumbnail},
-										{"label": "Preview", "value": ks.db.preview},
-									],
-									value=db.dto.photoQ,
-									className="mb-3",
-								),
-							], width=12),
-						], className="mb-2"),
-						dbc.Row([
-							dbc.Col([
-								htm.Ul([
-									htm.Li([htm.B("Thumbnail"), htm.Small(" Fastest, but with lower detail comparison accuracy"),]),
-									htm.Li([htm.B("Preview"), htm.Small(" Medium quality, generally the most balanced option"),]),
-								]),
-							], width=12, className=""),
-						], className="mb-0"),
-
+						htm.Div("When you press Execute, the following steps run in sequence:", className="mb-3"),
+						dbc.ListGroup([
+							dbc.ListGroupItem([
+								htm.Div("Reconcile Step 1 — Backfill UUID", className="fw-bold mb-1"),
+								htm.Div("Scan Qdrant for points missing the uuid fingerprint, then backfill uuid for assets still marked vectored in SQLite.", className="text-muted small"),
+							]),
+							dbc.ListGroupItem([
+								htm.Div("Reconcile Step 2 — Cleanup Orphans", className="fw-bold mb-1"),
+								htm.Div("Delete Qdrant points whose corresponding asset is no longer marked vectored (removed from Immich, vector flag cleared, etc.).", className="text-muted small"),
+							]),
+							dbc.ListGroupItem([
+								htm.Div("Step 3 — Generate Vectors", className="fw-bold mb-1"),
+								htm.Div("Generate CLIP embeddings for all non-vectored assets and write them into Qdrant with the uuid fingerprint.", className="text-muted small"),
+							]),
+						], flush=True, className="mb-3"),
+						htm.Div("All steps run automatically. You can press Cancel mid-way to stop.", className="text-muted small fst-italic"),
 					])
 				], className="mb-4")
 			], width=12),
@@ -109,7 +101,6 @@ def layout():
 		out(K.btnDoVec, "children"),
 		out(K.btnDoVec, "disabled"),
 		out(K.btnClear, "disabled"),
-		out(K.selectQ, "disabled"),
 	],
 	[
 		inp(ks.sto.cnt, "data"),
@@ -126,28 +117,21 @@ def vec_UpdateStatus(dta_cnt, dta_tsk):
 	cntNeedVec = cnt.ass - cnt.vec
 	isTskRunning = tsk.id is not None
 
-	# Default values
 	btnTxt = "Execute - Process Assets"
 	disBtnRun = True
 	disBtnClr = True
-	disSelect = False
 
 	lg.info(f"[vec] ass[{cnt.ass}] vec[{cnt.vec}] needVec[{cntNeedVec}] tskRunning[{isTskRunning}]")
 
 	if isTskRunning:
-		# Task is running
 		btnTxt = "Task in progress.."
 		disBtnRun = True
 		disBtnClr = True
-		disSelect = True
 	elif hasVecs and cntNeedVec <= 0:
-		# All assets vectorized
 		btnTxt = "Vectors Complete"
 		disBtnRun = True
 		disBtnClr = False
-		disSelect = True
 	elif hasPics:
-		# Has assets, some need vectorization
 		if cntNeedVec > 0:
 			btnTxt = f"Process Assets( {cntNeedVec} )"
 			disBtnRun = False
@@ -155,15 +139,12 @@ def vec_UpdateStatus(dta_cnt, dta_tsk):
 			btnTxt = "Vectors Complete"
 			disBtnRun = True
 		disBtnClr = False if hasVecs else True
-		disSelect = cntNeedVec <= 0
 	else:
-		# No assets
 		btnTxt = "Please Get Assets First"
 		disBtnRun = True
 		disBtnClr = True
-		disSelect = False
 
-	return btnTxt, disBtnRun, disBtnClr, disSelect
+	return btnTxt, disBtnRun, disBtnClr
 
 #------------------------------------------------------------------------
 #------------------------------------------------------------------------
@@ -178,7 +159,6 @@ def vec_UpdateStatus(dta_cnt, dta_tsk):
 		inp(K.btnClear, "n_clicks"),
 	],
 	[
-		ste(K.selectQ, "value"),
 		ste(ks.sto.now, "data"),
 		ste(ks.sto.cnt, "data"),
 		ste(ks.sto.mdl, "data"),
@@ -187,7 +167,7 @@ def vec_UpdateStatus(dta_cnt, dta_tsk):
 	],
 	prevent_initial_call=True
 )
-def vec_RunModal(nclk_proc, nclk_clear, photoQ, dta_now, dta_cnt, dta_mdl, dta_tsk, dta_nfy):
+def vec_RunModal(nclk_proc, nclk_clear, dta_now, dta_cnt, dta_mdl, dta_tsk, dta_nfy):
 	if not nclk_proc and not nclk_clear: return noUpd.by(3)
 
 	trgId = getTrgId()
@@ -213,9 +193,7 @@ def vec_RunModal(nclk_proc, nclk_clear, photoQ, dta_now, dta_cnt, dta_mdl, dta_t
 		else:
 			mdl.id = ks.pg.vector
 			mdl.cmd = ks.cmd.vec.toVec
-			mdl.msg = f"Begin processing photos[{cnt.ass - cnt.vec}] with quality[{photoQ}] ?"
-
-			db.dto.photoQ = photoQ
+			mdl.msg = f"Begin processing photos[{cnt.ass - cnt.vec}] ?"
 	elif trgId == K.btnClear:
 		if cnt.vec <= 0: nfy.error("No vector data to clear")
 		else:
@@ -241,41 +219,68 @@ def vec_ToVec(doReport: IFnProg, sto: models.ITaskStore):
 	try:
 		photoQ = db.dto.photoQ
 
-		doReport(1, f"Initializing with photoQ[{photoQ}]")
+		doReport(1, f"[ToVec] start with photoQ[{photoQ}]")
 
-		# Check for cancellation early
 		if sto.isCancelled():
 			msg = "Task was cancelled before processing"
 			nfy.info(msg)
 			return sto, msg
 
+		doReport(2, "reconcile: scan no-uuid")
+		nuids = db.vecs.getNoUuidAids()
+
+		if nuids:
+			allAss = db.pics.getAll()
+			aidVec1 = {a.autoId: a.id for a in allAss if a.isVectored == 1}
+			toFill = [(aid, aidVec1[aid]) for aid in nuids if aid in aidVec1]
+			toDel = [aid for aid in nuids if aid not in aidVec1]
+
+			if toFill:
+				doReport(3, f"reconcile step1: backfill uuid ({len(toFill)})")
+				db.vecs.setUuidPayloads(toFill)
+
+			if toDel:
+				doReport(4, f"reconcile: del orphan/non-ved ({len(toDel)})")
+				bsz = 500
+				batches = (len(toDel) + bsz - 1) // bsz
+				for i in range(0, len(toDel), bsz):
+					chunk = toDel[i:i + bsz]
+					db.vecs.deleteBy(chunk)
+					lg.info(f"[vec] delete batch[{i // bsz + 1}/{batches}] cnt[{len(chunk)}]")
+
+		doReport(5, "reconcile step3: scan idx desync")
+		scanned, repaired, broken = db.vecs.scanRepairIdx(doReport, sto.isCancelled)
+		lg.info(f"[vec] scanRepairIdx scanned={scanned} repaired={repaired} broken={len(broken)}")
+		if broken:
+			db.pics.setVectoredByAids(broken, done=0)
+			nfy.warn(f"Index scan: {len(broken)} broken point(s) cleared, will regenerate. IDs: {broken[:20]}{'...' if len(broken) > 20 else ''}")
+		elif repaired:
+			nfy.info(f"Index scan: repaired {repaired}/{scanned} point(s)")
+
 		assets = db.pics.getAllNonVector()
-		doReport(5, f"Getting asset data count[{len(assets)}]")
+		doReport(7, f"reconcile: process vecs ({len(assets)})")
 
 		if not assets or len(assets) == 0:
 			msg = "No assets to process"
 			nfy.error(msg)
 			return sto, msg
 
-		# Check for cancellation after getting assets
 		if sto.isCancelled():
 			msg = "Task was cancelled during initialization"
 			nfy.info(msg)
 			return sto, msg
 
 		cntAll = len(assets)
-		doReport(8, f"Found [ {cntAll} ] starting processing")
+		doReport(8, f"Found [ {cntAll} ] start processing..")
 
-		# Pass the cancel checker to processVectors
 		rst = imgs.processVectors(assets, photoQ, onUpdate=doReport, isCancelled=sto.isCancelled)
 
-		# Check for cancellation after processing
 		if sto.isCancelled():
 			msg = f"Processing cancelled: completed[ {rst.done} ] error[ {rst.erro} ]"
 			nfy.info(msg)
 			return sto, msg
 
-		cnt.vec = db.vecs.count()
+		cnt.vec = db.pics.count(vectored=1)
 
 		msg = f"Completed: total[ {rst.all} ] done[ {rst.done} ] Skip[ {rst.skip} ]"
 		if rst.erro: msg += f" Error[ {rst.erro}]"
@@ -315,7 +320,7 @@ def vec_Clear(doReport: IFnProg, sto: models.ITaskStore):
 
 		doReport(90, f"Cleared {count} vector records")
 
-		cnt.vec = 0
+		cnt.vec = db.pics.count(vectored=1)
 
 		msg = f"Successfully cleared all photo vector data ({count} records)"
 		nfy.success(msg)
