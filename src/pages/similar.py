@@ -843,26 +843,24 @@ def sim_RunModal(
 
 		thMin = db.dto.thMin
 
+		lg.info(('='*30)+'[btnFind]'+('='*30))
 		lg.info(f"[thMin] min[{thMin}] max[1.0]")
 
 		dstAss: Optional[models.Asset] = None
 
-		#------------------------------------------------
 		# asset from url
-		#------------------------------------------------
 		if now.sim.aidUrl and now.sim.assAid and trgId != "sim-btn-fnd": dstAss = db.pics.getByAutoId(now.sim.assAid)
 
 		#------------------------------------------------
-		# find from db
-		#------------------------------------------------
 		if not dstAss:
-			ass = db.pics.getAnyNonSim()
-			if ass:
-				dstAss = ass
-				lg.info(f"[sim] found non-simOk #{ass.autoId} assetId[{ass.id}]")
+			asses = db.pics.getAnyNonSim()
+			if asses:
+				dstAss = asses[0]
+				lg.info(f"[sim] use #{dstAss.autoId} assetId[{dstAss.id}]")
 
 		now.sim.clearAll()
 
+		#------------------------------------------------
 		if not dstAss: nfy.warn(f"[sim] not any asset to find..")
 		else:
 			now.sim.assAid = dstAss.autoId
@@ -893,8 +891,9 @@ from mod.models import IFnProg
 def queueAutoNext(sto: models.ITaskStore):
 	tsk = sto.tsk
 
-	ass = db.pics.getAnyNonSim()
-	if ass:
+	asses = db.pics.getAnyNonSim()
+	if asses:
+		ass = asses[0]
 		lg.info(f"[sim] auto found non-simOk assetId[{ass.id}]")
 
 		mdl = models.Mdl()
@@ -918,7 +917,6 @@ def sim_FindSimilar(doReport: IFnProg, sto: models.ITaskStore):
 
 	maxItems = db.dto.rtreeMax
 	thMin = db.dto.thMin
-
 	thMin = co.vad.float(thMin, 0.9)
 
 	fromUrl = now.sim.assAid > 0 and now.sim.assAid == now.sim.aidUrl
@@ -931,7 +929,6 @@ def sim_FindSimilar(doReport: IFnProg, sto: models.ITaskStore):
 		lg.info(f"[sim:fs] now.sim.assAid[{now.sim.assAid}]")
 		doReport(1, f"prepare..")
 
-		# Find asset candidate
 		try: asset = sim.findCandidate(now.sim.assAid, tsk.args)
 		except RuntimeError as e:
 			if "already searched" in str(e):
@@ -939,8 +936,11 @@ def sim_FindSimilar(doReport: IFnProg, sto: models.ITaskStore):
 				return sto, [str(e)]
 			raise e
 
-		# search
-		grps = sim.searchBy(asset, doReport, sto.isCancelled, fromUrl)
+		sRst = sim.searchBy(asset, doReport, sto.isCancelled, fromUrl)
+		grps = sRst.groups
+
+		if sRst.corrupted:
+			nfy.warn(f"{len(sRst.corrupted)} asset(s) had corrupted vector indexes (auto-repair failed). Please re-run Vector to resync. IDs: {sRst.corrupted}")
 
 		if not grps:
 			nfy.info(f"No similar Threshold[{thMin}] groups found for asset #{asset.autoId}")

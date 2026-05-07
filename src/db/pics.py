@@ -249,15 +249,21 @@ def clearBy(usrId):
 	except Exception as e: raise mkErr(f"Failed to delete assets by userId[{usrId}]", e)
 
 
-def count(usrId=None):
+def count(usrId=None, vectored: Optional[int]=None):
 	try:
 		with mkConn() as conn:
 			c = conn.cursor()
-			sql = "Select Count(*) From assets"
+			cds = []
+			pms = []
 			if usrId:
-				sql += " Where ownerId = ?"
-				c.execute(sql, (usrId,))
-			else: c.execute(sql)
+				cds.append("ownerId = ?")
+				pms.append(usrId)
+			if vectored is not None:
+				cds.append("isVectored = ?")
+				pms.append(vectored)
+			sql = "Select Count(*) From assets"
+			if cds: sql += " Where " + " And ".join(cds)
+			c.execute(sql, pms)
 			cnt = c.fetchone()[0]
 			return cnt
 	except Exception as e: raise mkErr("Failed to get assets count", e)
@@ -481,18 +487,33 @@ def getFiltered(usrId="", opts="all", search="", pathFilter="", onlyFav=False, o
 # update
 #========================================================================
 
-def setVectoredBy(asset: models.Asset, done=1, cur: Optional[Cursor]=None):
+def setVectoredBy(assets: List[models.Asset], done=1, cur: Optional[Cursor]=None):
+	if not assets: return
 	try:
+		aids = [a.autoId for a in assets]
+		qargs = ','.join(['?' for _ in aids])
+		sql = f"UPDATE assets SET isVectored=? WHERE autoId IN ({qargs})"
+		params = [done] + aids
 		if cur:
-			# Use provided cursor (for transactions)
-			cur.execute("UPDATE assets SET isVectored=? WHERE id = ?", (done, asset.id))
+			cur.execute(sql, params)
 		else:
-			# Use context manager for standalone operation
 			with mkConn() as conn:
 				c = conn.cursor()
-				c.execute("UPDATE assets SET isVectored=? WHERE id = ?", (done, asset.id))
+				c.execute(sql, params)
 				conn.commit()
-	except Exception as e: raise mkErr(f"Failed to update vector status for asset[{asset.id}]", e)
+	except Exception as e: raise mkErr(f"Failed to update vector status for assets[{len(assets)}]", e)
+
+
+def setVectoredByAids(aids: List[int], done=1):
+	if not aids: return
+	try:
+		qargs = ','.join(['?' for _ in aids])
+		sql = f"UPDATE assets SET isVectored=? WHERE autoId IN ({qargs})"
+		with mkConn() as conn:
+			c = conn.cursor()
+			c.execute(sql, [done] + aids)
+			conn.commit()
+	except Exception as e: raise mkErr(f"Failed to update vector status for aids[{len(aids)}]", e)
 
 
 def saveBy(asset: dict, c: Cursor) -> int:  #, onExist:Callable[[models.Asset],None]):
@@ -587,11 +608,10 @@ def saveBy(asset: dict, c: Cursor) -> int:  #, onExist:Callable[[models.Asset],N
 # sim
 #========================================================================
 
-def getAnyNonSim(exclAids=[]) -> Optional[models.Asset]:
+def getAnyNonSim(exclAids=[], limit: int=1) -> list[models.Asset]:
 	try:
 		with mkConn() as conn:
 			c = conn.cursor()
-			# assets without any assetsSims records (not searched yet)
 			sql = """
 				SELECT a.* FROM assets a
 				WHERE a.isVectored = 1 AND a.simOk != 1
@@ -605,13 +625,16 @@ def getAnyNonSim(exclAids=[]) -> Optional[models.Asset]:
 				params.extend(exclAids)
 
 			c.execute(sql, params)
+			rst: list[models.Asset] = []
+			import db
 			while True:
 				row = c.fetchone()
-				if row is None: return None
-				asset = models.Asset.fromDB(c, row)
-
-				import db
-				if not db.dto.checkIsExclude(asset): return asset
+				if row is None: break
+				ast = models.Asset.fromDB(c, row)
+				if db.dto.checkIsExclude(ast): continue
+				rst.append(ast)
+				if len(rst) >= limit: break
+			return rst
 	except Exception as e: raise mkErr("Failed to get non-sim asset", e)
 
 

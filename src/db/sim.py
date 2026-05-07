@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from collections import defaultdict
 from typing import List, Tuple, Set, Callable, Optional
 from dataclasses import dataclass, field
 
@@ -11,31 +11,35 @@ from util import log
 lg = log.get(__name__)
 
 @dataclass
-class LogStep:
-	aid: int
-	t0: float = field(default_factory=time.time)
-	ts: str = field(default_factory=lambda: datetime.now().strftime("%H:%M:%S.%f")[:-3])
-	steps: List[str] = field(default_factory=list)
-	result: str = ""
+class BatchStats:
+	groups: dict[str, list[int]] = field(default_factory=lambda: defaultdict(list))
 
-	def mark(self, name: str, extra: str=""):
-		elapsed = int((time.time() - self.t0) * 1000)
-		label = f"{name}[{extra}](+{elapsed}ms)" if extra else f"{name}(+{elapsed}ms)"
-		self.steps.append(label)
+	def add(self, aid: int, result: str): self.groups[result].append(aid)
 
-	def setResult(self, res: str): self.result = res
-
-	def flush(self):
-		parts = " ".join(self.steps)
-		lg.info(f"#{self.aid} [{self.ts}] {parts} → {self.result}")
+	def flush(self, batchN: int, qdrantMs: int, aidLo: int, aidHi: int):
+		parts = []
+		for k in ('found', 'dupSkip', 'noFound'):
+			aids = self.groups.get(k)
+			if not aids: continue
+			if k in ('found', 'dupSkip'): parts.append(f"{k}[{','.join('#'+str(a) for a in aids)}]")
+			else: parts.append(f"{k}({len(aids)})")
+		for k, aids in self.groups.items():
+			if k in ('found', 'dupSkip', 'noFound'): continue
+			parts.append(f"{k}({len(aids)})")
+		lg.info(f"[sim:bat] cnt[{batchN}] qdrant[{qdrantMs}ms] aids[#{aidLo}~#{aidHi}] {' '.join(parts)}")
 
 @dataclass
 class SearchInfo:
 	asset: Optional[models.Asset] = None
-	bseVec: List[float] = field(default_factory=list)
 	bseInfos: List[models.SimInfo] = field(default_factory=list)
 	simAids: List[int] = field(default_factory=list)
 	assets: List[models.Asset] = field(default_factory=list)
+	result: Optional[str] = None
+
+@dataclass
+class SearchResult:
+	groups: List[SearchInfo] = field(default_factory=list)
+	corrupted: List[int] = field(default_factory=list)
 
 
 
@@ -95,7 +99,6 @@ def findCandidate(autoId: int, taskArgs: dict) -> models.Asset:
 	else: asset = db.pics.getByAutoId(autoId) if autoId else None
 
 	if not autoId: raise RuntimeError(f"[tsk] sim.assAid is empty")
-
 	if not asset: raise RuntimeError(f"[sim:fnd] not found asset #{autoId}")
 
 	if db.pics.hasSimGIDs(asset.autoId): raise RuntimeError(f"[sim:fnd] asset #{asset.autoId} already searched, please clear All Records first")
@@ -104,85 +107,101 @@ def findCandidate(autoId: int, taskArgs: dict) -> models.Asset:
 
 
 
-def searchBy(src: models.Asset, doRep: IFnProg, isCancel: IFnCancel, fromUrl: bool=False) -> List[SearchInfo]:
+
+def searchBy(src:models.Asset, doRep:IFnProg, isCancel:IFnCancel, fromUrl=False, BatchSize=128) -> SearchResult:
 	gis = []
-	ass = src
 	grpIdx = 1
 	skipAids = []
+	corrupted: list[int] = []
 	sizeMax = (db.dto.muod.sz or 1) if not fromUrl else 1 #when fromUrl only process one
-	lg.info(f"[sim:sh] sz[{db.dto.muod.sz}] sizeMax[{sizeMax}] url[{fromUrl}]")
+	thMin = db.dto.thMin
+	lg.info(f"[sim:sh] sz[{db.dto.muod.sz}] sizeMax[{sizeMax}] url[{fromUrl}] batch[{BatchSize}]")
 
-	while len(gis) < sizeMax:
+	pending: list[models.Asset] = [src] if src else []
+	stopUrl = False
+
+	while len(gis) < sizeMax and not stopUrl:
 		if isCancel():
 			lg.info(f"[sim:sh] user cancelled")
 			break
 
-		if not ass:
-			nextAss = db.pics.getAnyNonSim(skipAids)
-			if not nextAss:
+		if not pending:
+			pending = db.pics.getAnyNonSim(skipAids, limit=BatchSize)
+			if not pending:
 				lg.info(f"[sim:sh] No more assets to search")
 				break
-			ass = nextAss
 
-		ls = LogStep(ass.autoId)
-		ls.mark("getNonSim")
+		aids = [a.autoId for a in pending]
+		aidLo, aidHi = min(aids), max(aids)
+		t0 = time.time()
+		simMap = db.vecs.findSimiliar(aids, thMin)
+		batchMs = int((time.time() - t0) * 1000)
 
-		prog = int((len(gis) / sizeMax) * 100) if sizeMax > 0 else 0
-		doRep(prog, f"Searching group {len(gis) + 1}/{sizeMax} - Asset #{ass.autoId}")
+		stats = BatchStats()
+		processed = 0
+		for ass in pending:
+			processed += 1
+			if isCancel(): break
+			if len(gis) >= sizeMax: break
 
-		try:
-			gi = findGroupBy(ass, doRep, grpIdx, fromUrl, ls)
+			sinfo = simMap[ass.autoId]
 
-			if not gi.assets:
-				if fromUrl:
-					ls.setResult("notFoundFromUrl")
-					ls.flush()
-					break
-
-				ls.flush()
-				ass = None
+			if not sinfo:
+				db.pics.setVectoredBy([ass], done=0)
+				try: db.vecs.deleteBy([ass.autoId])
+				except Exception as ce: lg.warn(f"[sim:sh] qdrant clean failed aid[{ass.autoId}]: {ce}")
+				corrupted.append(ass.autoId)
+				stats.add(ass.autoId, "corrupted")
+				lg.warn(f"[sim:sh] aid[{ass.autoId}] idx corrupted, cleared")
 				continue
 
-			existingIds = {ast.autoId for grp in gis for ast in grp.assets}
-			hasDup = any(ast.autoId in existingIds for ast in gi.assets)
-			if hasDup:
-				ls.setResult("dupSkip")
-				ls.flush()
-				skipAids.append(ass.autoId)
-				ass = None
-				continue
+			prog = int((len(gis) / sizeMax) * 100) if sizeMax > 0 else 0
+			doRep(prog, f"Searching group {len(gis) + 1}/{sizeMax} - Asset #{ass.autoId}")
 
-			gis.append(gi)
-			ls.setResult(f"found({len(gi.assets)})")
-			ls.flush()
-			grpIdx += 1
-			ass = None
-		except Exception as e:
-			lg.error(f"[sim:sh] Error processing asset #{ass.autoId}: {e}")
-			raise
+			try:
+				gi = findGroupBy(ass, sinfo, doRep, grpIdx, fromUrl, corrupted)
 
-		# break for normal mode
-		if fromUrl or not db.dto.muod.on: break
+				if not gi.assets:
+					if fromUrl:
+						stats.add(ass.autoId, "notFoundFromUrl")
+						stopUrl = True
+						break
+					stats.add(ass.autoId, gi.result or "noFound")
+					continue
+
+				existingIds = {a.autoId for grp in gis for a in grp.assets}
+				hasDup = any(a.autoId in existingIds for a in gi.assets)
+				if hasDup:
+					stats.add(ass.autoId, "dupSkip")
+					skipAids.append(ass.autoId)
+					continue
+
+				gis.append(gi)
+				stats.add(ass.autoId, "found")
+				grpIdx += 1
+
+				if fromUrl or not db.dto.muod.on: break
+			except Exception as e:
+				lg.error(f"[sim:sh] Error processing asset #{ass.autoId}: {e}")
+				raise
+
+		stats.flush(processed, batchMs, aidLo, aidHi)
+
+		pending = pending[processed:]
+
+		if fromUrl: break
+		if not db.dto.muod.on and gis: break
 
 	totalAssets = sum(len(g.assets) for g in gis)
+	if corrupted: lg.warn(f"[sim:sh] {len(corrupted)} assets corrupted: {corrupted}")
 	doRep(100, f"Found {len(gis)} groups with {totalAssets} total assets")
-	return gis
+	return SearchResult(groups=gis, corrupted=corrupted)
 
 
-def findGroupBy(ast: models.Asset, doReport: IFnProg, grpId: int, fromUrl=False, ls: Optional[LogStep]=None) -> SearchInfo:
+def findGroupBy(ast: models.Asset, sinfo: List[models.SimInfo], doReport: IFnProg, grpId: int, fromUrl=False, corrupted: list[int]=None) -> SearchInfo:
 	rst = SearchInfo()
 	rst.asset = ast
-	thMin = db.dto.thMin
-
-	vec, sinfo = db.vecs.findSimiliar(ast.autoId, thMin)
-	if ls: ls.mark("vecs", str(len(sinfo)))
-	rst.bseVec = vec
 	rst.bseInfos = sinfo
-
-	if not sinfo:
-		if ls: ls.setResult("noVector")
-		db.pics.setVectoredBy(ast, 0)
-		return rst
 
 	simAids = [i.aid for i in sinfo if not i.isSelf]
 
@@ -192,41 +211,38 @@ def findGroupBy(ast: models.Asset, doReport: IFnProg, grpId: int, fromUrl=False,
 			simAsset = db.pics.getByAutoId(aid)
 			if simAsset and not db.dto.checkIsExclude(simAsset): filteredAids.append(aid)
 		simAids = filteredAids
-		if ls: ls.mark("extFil", str(len(simAids)))
 
 	rst.simAids = simAids
 
 	if not simAids:
-		if ls: ls.setResult("noFound")
 		db.pics.setSimInfos(ast.autoId, sinfo, isOk=1)
+		rst.result = "noFound"
 		return rst
 
 	assets = [ast] + [db.pics.getByAutoId(aid) for aid in simAids if db.pics.getByAutoId(aid)]
 	condOk, condReason = checkGroupConds(assets)
 	if not condOk:
-		if ls: ls.setResult(f"cond({condReason})")
 		db.pics.setSimInfos(ast.autoId, sinfo, isOk=1)
+		rst.result = f"cond({condReason})"
 		return rst
 
 	if db.dto.excl.on and db.dto.excl.fndLes > 0:
 		if len(simAids) < db.dto.excl.fndLes:
-			if ls: ls.setResult(f"excl(sim:{len(simAids)}<{db.dto.excl.fndLes})")
 			db.pics.setSimInfos(ast.autoId, sinfo, isOk=1)
+			rst.result = f"excl<{db.dto.excl.fndLes}"
 			return rst
 
 	if db.dto.excl.on and db.dto.excl.fndOvr > 0:
 		if len(simAids) > db.dto.excl.fndOvr:
-			if ls: ls.setResult(f"excl(sim:{len(simAids)}>{db.dto.excl.fndOvr})")
 			db.pics.setSimInfos(ast.autoId, sinfo, isOk=1)
+			rst.result = f"excl>{db.dto.excl.fndOvr}"
 			return rst
 
 	rootGID = ast.autoId
 	db.pics.setSimGIDs(ast.autoId, rootGID)
 	db.pics.setSimInfos(ast.autoId, sinfo)
-	if ls: ls.mark("setGID")
 
-	processChildren(ast, sinfo, simAids, doReport)
-	if ls: ls.mark("children")
+	processChildren(ast, sinfo, simAids, doReport, corrupted)
 
 	if not fromUrl and db.dto.muod.on:
 		assets = db.pics.getSimAssets(ast.autoId, False)
@@ -239,49 +255,69 @@ def findGroupBy(ast: models.Asset, doReport: IFnProg, grpId: int, fromUrl=False,
 	if db.dto.pathFilter and rst.assets:
 		hasMatch = any(db.dto.pathFilter in (a.originalPath or '') for a in rst.assets)
 		if not hasMatch:
-			if ls: ls.setResult(f"pathFil({db.dto.pathFilter})")
 			db.pics.setSimInfos(ast.autoId, sinfo, isOk=1)
 			rst.assets = []
+			rst.result = "pathFil"
 
 	return rst
 
 
-def processChildren(ast: models.Asset, infos: List[models.SimInfo], simAids: List[int], doReport: IFnProg) -> Set[int]:
+def processChildren(ast: models.Asset, infos: List[models.SimInfo], simAids: List[int], doReport: IFnProg, corrupted: list[int]=None) -> Set[int]:
 	thMin = db.dto.thMin
 	maxItems = db.dto.rtreeMax
-
 
 	rootGID = ast.autoId
 	db.pics.setSimGIDs(ast.autoId, rootGID)
 	db.pics.setSimInfos(ast.autoId, infos)
 
 	doneIds = {ast.autoId}
-	simQ = [(aid, 0) for aid in simAids]
+	layer: list[int] = list(simAids)
+	depth = 0
 
-	while simQ:
-		aid, depth = simQ.pop(0)
-		if aid in doneIds: continue
+	while layer:
+		validAss: list[models.Asset] = []
+		for aid in layer:
+			if aid in doneIds: continue
+			try: ass = db.pics.getByAutoId(aid)
+			except Exception as ce: raise RuntimeError(f"Error processing similar image {aid}: {ce}")
+			if not ass:
+				doneIds.add(aid)
+				continue
+			doneIds.add(aid)
+			if ass.simOk: continue
+			validAss.append(ass)
+			if len(doneIds) >= maxItems: break
 
-		doneIds.add(aid)
-		doReport(50, f"Processing children similar photo #{aid} depth({depth}) count({len(doneIds)})")
+		if not validAss: break
 
-		try:
-			ass = db.pics.getByAutoId(aid)
-			if ass.simOk: continue  # ignore already resolved
+		doReport(50, f"Processing children depth({depth}) count({len(doneIds)}/{maxItems})")
 
-			# lg.info(f"[sim:fnd] search child #{aid} depth[{depth}]items({len(doneIds)}/{maxItems})")
-			cVec, cInfos = db.vecs.findSimiliar(aid, thMin)
+		valid = [a.autoId for a in validAss]
+		try: childMap = db.vecs.findSimiliar(valid, thMin)
+		except Exception as ce: raise RuntimeError(f"Error batch finding children: {ce}")
+
+		nextLayer: list[int] = []
+		for ass in validAss:
+			aid = ass.autoId
+			cInfos = childMap[aid]
+			if not cInfos:
+				db.pics.setVectoredBy([ass], done=0)
+				try: db.vecs.deleteBy([aid])
+				except Exception as ce: lg.warn(f"[sim:children] qdrant clean failed aid[{aid}]: {ce}")
+				if corrupted is not None: corrupted.append(aid)
+				lg.warn(f"[sim:children] aid[{aid}] idx corrupted, cleared")
+				continue
 
 			db.pics.setSimGIDs(aid, rootGID)
 			db.pics.setSimInfos(aid, cInfos)
 
-			# Add children to queue if haven't reached max depth/items
 			if len(doneIds) < maxItems:
 				for inf in cInfos:
-					if inf.aid not in doneIds: simQ.append((inf.aid, depth + 1))
-		except Exception as ce: raise RuntimeError(f"Error processing similar image {aid}: {ce}")
+					if inf.aid not in doneIds: nextLayer.append(inf.aid)
 
-		# Check item limit
+		layer = nextLayer
+		depth += 1
+
 		if len(doneIds) >= maxItems:
 			lg.warn(f"[sim:fnd] Reached max items limit ({maxItems}), stopping search..")
 			doReport(90, f"Reached max items limit ({maxItems}), processing current item...")
