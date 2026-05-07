@@ -867,7 +867,7 @@ class TestAutoDbField(T):
         for fld in dc_fields(Ausl):
             if fld.name in ('on', 'skipLow', 'allLive', 'kpCands'):
                 self.assertIs(fld.type, bool, f"{fld.name}: fld.type should be bool, got {fld.type!r}")
-            elif fld.name in ('usr', 'pth'):
+            elif fld.name in ('usr', 'pth', 'dev'):
                 from dto import PairKv
                 self.assertIs(fld.type, PairKv, f"{fld.name}: fld.type should be PairKv, got {fld.type!r}")
             else:

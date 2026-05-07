@@ -1,0 +1,125 @@
+name: Configuration / Setup Issue
+description: Report a problem with installation, setup, or environment configuration
+title: "[Config] "
+labels: ["config"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template if you are having trouble installing, configuring, or starting Immich-Deduper.
+
+        Examples: cannot connect to Immich database, Docker container fails to start, environment variables not picked up, first-time setup confusion.
+
+        For reproducible bugs in a working installation, use the **Bug Report** template instead.
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight Checklist
+      options:
+        - label: I have searched existing issues and discussions
+          required: true
+        - label: I have read the README and documentation
+          required: true
+
+  - type: dropdown
+    id: issue-area
+    attributes:
+      label: Issue Area
+      description: Which part of setup is giving you trouble?
+      options:
+        - Installation (pip / source)
+        - Docker / Docker Compose
+        - Database connection (Immich PostgreSQL)
+        - Qdrant / vector database
+        - Environment variables / config file
+        - First-time setup / getting started
+        - Other
+      default: 6
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment-method
+    attributes:
+      label: Deployment Method
+      description: How are you trying to run Immich-Deduper?
+      options:
+        - Docker Compose (same-host with Immich)
+        - Docker Compose (different-host from Immich)
+        - Source Installation (pip install)
+        - Development/Source (git clone)
+      default: 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is happening
+      description: Describe what you are trying to do and what is going wrong
+      placeholder: |
+        What I'm trying to do: ...
+        What happens instead: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Information
+      description: Please provide your environment details
+      placeholder: |
+        OS: [e.g. Ubuntu 22.04, Windows 11, macOS 13]
+        Python Version: [e.g. 3.11.5]
+        Immich Version: [e.g. v1.95.1]
+        Deduper Version: [e.g. 0.1.3]
+        Docker Version: [if using Docker]
+    validations:
+      required: true
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration
+      description: Share your configuration with sensitive data removed (passwords, tokens, etc.)
+      placeholder: |
+        Environment variables or config file content (with sensitive data removed):
+
+        PSQL_HOST=localhost
+        PSQL_PORT=5432
+        PSQL_DB=immich
+        PSQL_USER=postgres
+        PSQL_PASS=***REMOVED***
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Output / Logs
+      description: Paste any error messages or relevant log output
+      placeholder: |
+        Paste error output here...
+
+        You can find logs in:
+        - Docker: docker compose logs deduper
+        - Source: data/logs/deduper.log
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What You Have Tried
+      description: Steps you have already taken to resolve this
+      placeholder: |
+        - Checked ...
+        - Tried changing ...
+        - Looked at ...
+    validations:
+      required: false

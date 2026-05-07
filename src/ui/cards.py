@@ -173,7 +173,10 @@ def mk(ass: models.Asset, modSim=True):
 					htm.Span("immich id"), htm.Span(f"{ass.id}", className="tag"),
 					htm.Span("device"), htm.Span(f"{ass.deviceId}", className="tag second"),
 					htm.Span("Path"), htm.Span(f"{path.dirname(ass.originalPath)}", className="tag second multiline"),
-					htm.Span("File"), htm.Span(f"{ass.originalFileName}", className="tag second multiline"),
+					htm.Span("File"), htm.Span([
+						htm.Span(f"{ass.originalFileName}", className="tag second multiline"),
+						htm.Span(f"{path.basename(ass.originalPath)}", className="tag yellow multiline ms-1") if ass.originalPath and path.basename(ass.originalPath) != ass.originalFileName else None,
+					]),
 					htm.Span("CreateAt"), htm.Span(f"{ass.fileCreatedAt}", className="tag second"),
 					htm.Span("ModifiedAt"), htm.Span(f"{ass.fileModifiedAt}", className="tag second"),
 

@@ -60,7 +60,7 @@ class k:
 
 
 optThresholdMin = 0.5
-optThresholdMarks = {"0.5":0.5, "0.6":0.6, "0.7": 0.7, "0.8": 0.8, "0.9": 0.9, "1": 1}
+optThresholdMarks = {"0.5":0.5, "0.6":0.6, "0.7": 0.7, "0.8": 0.8, "0.9": 0.9, "0.999": 0.999}
 
 optMaxDepths = []
 for i in range(6): optMaxDepths.append({"label": f"{i}", "value": i})
@@ -80,6 +80,19 @@ def _getUsrOpts():
 		usrs = db.psql.fetchUsers()
 		if usrs:
 			for usr in usrs: opts.append({"label": usr.name or usr.email or usr.id[:8], "value": str(usr.id)})
+	except: pass
+	return opts
+
+def getDevOpts():
+	opts = [{"label": "--", "value": ""}]
+	try:
+		with db.pics.mkConn() as conn:
+			c = conn.cursor()
+			c.execute("SELECT deviceId, COUNT(*) as cnt FROM assets WHERE deviceId IS NOT NULL AND deviceId != '' GROUP BY deviceId ORDER BY cnt DESC")
+			for row in c.fetchall():
+				did, cnt = row[0], row[1]
+				name = did if len(did) <= 20 else did[:8] + ".."
+				opts.append({"label": f"{name} ({cnt})", "value": did})
 	except: pass
 	return opts
 
@@ -106,7 +119,7 @@ def renderThreshold():
 			htm.Div([
 				htm.Div([
 					dcc.Slider(
-						id=k.id(k.threshold), min=optThresholdMin, max=1, step=0.01, marks=optThresholdMarks, #type: ignore
+						id=k.id(k.threshold), min=optThresholdMin, max=0.999, step=0.005, marks=optThresholdMarks, #type: ignore
 						value=db.dto.thMin, included=False,
 						tooltip={"placement": "top", "always_visible": True, "style": {"padding": "0 1px 0 1px", "fontSize": "11px"},},
 					),
@@ -259,6 +272,14 @@ def renderAutoSelect():
 					dbc.Input(id=k.ausl("pthVal"), value=a.pth.k, disabled=dis, className="me-1 txt-smx", style={"maxWidth": "80%"}, placeholder="e.g. /library/clean", debounce=1000),
 					htm.Label("Weight", className="me-2"),
 					dbc.Select(id=k.ausl("pthWgt"), options=toOpts(optWeights), value=a.pth.v, disabled=dis, size="sm"),
+				], className="icriteria"),
+
+				htm.Div([
+					htm.Span(htm.Span("Device", className="tag txt-smx me-1")),
+					htm.Label("Source", className="me-2"),
+					dbc.Select(id=k.ausl("devPri"), options=toOpts(getDevOpts()), value=a.dev.k, disabled=dis, size="sm", className="me-1", style={"minWidth": "60px"}),
+					htm.Label("Weight", className="me-2"),
+					dbc.Select(id=k.ausl("devWgt"), options=toOpts(optWeights), value=a.dev.v, disabled=dis, size="sm"),
 				], className="icriteria"),
 
 			], className="mb-2 igrid txt-sm"),
@@ -426,7 +447,7 @@ def settings_OnUpd(th, auNxt, shGdInfo, rtree,  maxItems, pathFilter, muodOn, mu
 
 	now = models.Now.fromDic(dta_now)
 
-	db.dto.thMin = co.vad.float(th, 0.93, 0.50, 1.0)
+	db.dto.thMin = co.vad.float(th, 0.93, 0.50, 0.999)
 
 	db.dto.autoNext = auNxt
 	db.dto.rtreeMax = maxItems
@@ -478,6 +499,7 @@ def ausl_OnUpd(values):
 	a = db.dto.ausl
 	usrPri, usrWgt = None, None
 	pthVal, pthWgt = None, None
+	devPri, devWgt = None, None
 
 	# ctx.inputs_list[0] 格式: [{'id': {'field': 'on', 'type': 'ausl'}, 'value': True}, ...]
 	fields = []
@@ -490,10 +512,13 @@ def ausl_OnUpd(values):
 		elif fld == 'usrWgt': usrWgt = val
 		elif fld == 'pthVal': pthVal = val
 		elif fld == 'pthWgt': pthWgt = val
+		elif fld == 'devPri': devPri = val
+		elif fld == 'devWgt': devWgt = val
 		else: setattr(a, fld, val)
 
 	a.usr = PairKv(k=usrPri or '', v=usrWgt or 0)
 	a.pth = PairKv(k=pthVal or '', v=pthWgt or 0)
+	a.dev = PairKv(k=devPri or '', v=devWgt or 0)
 
 	lg.info(f"[ausl:OnUpd] {a}")
 

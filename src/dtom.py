@@ -40,6 +40,7 @@ class Ausl:
 	inAlb:int = 0
 	usr:PairKv = field(default_factory=PairKv)
 	pth:PairKv = field(default_factory=PairKv)
+	dev:PairKv = field(default_factory=PairKv)
 
 @dataclass
 class Mrg:

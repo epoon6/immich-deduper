@@ -10,6 +10,16 @@ body:
       value: |
         Thanks for taking the time to fill out this bug report! Please provide as much detail as possible to help us reproduce and fix the issue.
 
+  - type: markdown
+    attributes:
+      value: |
+        > ⚠️ **Is this actually a configuration / setup issue?**
+        > If your problem is about installation, Docker setup, environment variables,
+        > database connection, or "it doesn't start / can't connect to Immich",
+        > please **close this and use the [Configuration / Setup Issue template](https://github.com/razgrizhsu/immich-deduper/issues/new?template=configuration.yml)** instead.
+        >
+        > This template is for **reproducible bugs in working installations**.
+
   - type: checkboxes
     id: terms
     attributes:
@@ -19,6 +29,8 @@ body:
         - label: I have searched existing issues and this is not a duplicate
           required: true
         - label: I have read the documentation and troubleshooting guides
+          required: true
+        - label: This is a reproducible bug, not a configuration / setup / installation issue
           required: true
 
   - type: textarea
@@ -107,8 +119,8 @@ body:
         Paste error logs here...
 
         You can find logs in:
-        - Docker: docker compose logs mediakit
-        - Source: data/logs/mediakit.log
+        - Docker: docker compose logs deduper
+        - Source: data/logs/deduper.log
       render: shell
     validations:
       required: true

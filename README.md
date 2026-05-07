@@ -56,66 +56,16 @@ Find and remove similar/duplicate images using deep learning.
    - Follows Immich's deletion logic for compatibility
    - **Important**: Enable trash feature in Immich settings first
    - Deleted assets appear in Immich's trash where you can permanently delete or restore them
-   - If you trash assets directly in Immich, run Fetch again to sync the changes (trashed assets and their vectors will be automatically removed)
-
 
 ---
 
-### Metadata Merge (BETA)
+## Sync Behavior
 
-<p align="center">
-<img src="docs/metadata.jpg" alt="metadata" />
-</p>
+Deduper does not auto-sync with Immich.
+The local database is a snapshot from your last Fetch.
+Any change you make on the Immich side leaves the two sides drifting apart until you open the Fetch page and run `Fetch: Get Assets` again for the affected user.
 
-> ⚠️ **This feature is experimental and under active testing.**
-> If you are not willing to participate in testing and accept potential risks, please do not enable this feature.
->
-> **Safe Testing:**
-> 1. Copy a photo to create fake duplicates
-> 2. Upload copies to Immich and add different metadata to each (albums, tags, ratings)
-> 3. Run Deduper and use Metadata Merge
-> 4. Verify the kept photo has merged metadata from all copies
->
-> Do not test on photos you care about.
-
-When deleting duplicates, Metadata Merge can transfer metadata from deleted photos to kept ones:
-
-- **Albums**: Add kept photos to all albums that contained any photo in the group
-- **Favorites**: Mark kept photos as favorite if any photo was favorited
-- **Tags**: Merge all tags from the group to kept photos
-- **Rating**: Apply highest rating from the group
-- **Description**: Merge descriptions (deduplicated line by line)
-- **Location**: Apply most common GPS coordinates
-- **Visibility**: Apply strictest visibility setting (locked > hidden > archive > timeline)
-
-**How It Works:**
-
-1. **Database Update**: Writes merged metadata directly to Immich PostgreSQL database
-2. **XMP Sidecar**: Creates/updates `.xmp` sidecar files alongside kept photos with:
-   - Description, Rating, GPS coordinates, Tags
-   - Prevents Immich's "Refresh Metadata" from overwriting merged values
-3. **Atomic Operation**: All changes (DB + XMP) are committed together; if any step fails, everything rolls back
-
-**Requirements:**
-- **exiftool CLI**: Required for XMP sidecar writing
-  - Docker: Pre-installed
-  - Source install: `brew install exiftool` (macOS) or `apt install libimage-exiftool-perl` (Linux)
-- **File Access**: Deduper needs write permission to photo directories for XMP files
-
-**Important Notes:**
-- **External Libraries**: Configure library paths in Fetch page before using Metadata Merge
-- **Backup XMP**: Existing `.xmp` files are backed up to `.xmp.bak` during merge; restored on failure, removed on success
-- **New XMP Files**: For photos without existing sidecar, Deduper creates new `.xmp` and updates Immich's `sidecarPath`
-- **Immich Sync**: After merge, Immich will read the XMP sidecar on next "Refresh Metadata" without losing merged values
-
-**Troubleshooting:**
-- Check logs at `DEDUP_DATA/logs/` for detailed error messages
-- Common errors:
-  - `exiftool CLI not found`: Install exiftool (see Requirements above)
-  - `File not found`: Configure external library paths in Fetch page
-  - `No write permission`: Ensure Deduper has write access to photo directories
-
-⚠️ **Warning**: This feature writes directly to Immich database and creates XMP sidecar files. Always backup your database and photos before use.
+Re-running Fetch reconciles the local database with Immich's current state. Newly brought-in assets still need a pass on the Vector page before they appear in similarity search.
 
 ---
 
@@ -228,8 +178,8 @@ Automatically select the best photo in each duplicate group based on configurabl
 
 - **Progressive cleaning approach**
   - Start with the highest similarity threshold and work your way down:
-    - First, get rid of exact duplicates `(0.97-1.00)`
-    - Then find near-duplicates `(0.90-0.97)`
+    - First, get rid of exact duplicates `(0.98-0.999)`
+    - Then find near-duplicates `(0.90-0.96)`
     - Finally, catch similar but different shots `(0.80-0.90)`
   - This way you tackle the obvious duplicates first, then deal with the photos that need more careful judgment
 
@@ -257,6 +207,64 @@ Automatically select the best photo in each duplicate group based on configurabl
   - Ensure external library paths are not set to read-only if using Docker Compose
   - Enable Immich's recycle bin feature before processing external libraries
   - Remember that Deduper reads from Immich thumbnails, so original file locations don't affect similarity detection
+
+---
+
+### Metadata Merge (BETA)
+
+<p align="center">
+<img src="docs/metadata.jpg" alt="metadata" />
+</p>
+
+> ⚠️ **This feature is experimental and under active testing.**
+> If you are not willing to participate in testing and accept potential risks, please do not enable this feature.
+>
+> **Safe Testing:**
+> 1. Copy a photo to create fake duplicates
+> 2. Upload copies to Immich and add different metadata to each (albums, tags, ratings)
+> 3. Run Deduper and use Metadata Merge
+> 4. Verify the kept photo has merged metadata from all copies
+>
+> Do not test on photos you care about.
+
+When deleting duplicates, Metadata Merge can transfer metadata from deleted photos to kept ones:
+
+- **Albums**: Add kept photos to all albums that contained any photo in the group
+- **Favorites**: Mark kept photos as favorite if any photo was favorited
+- **Tags**: Merge all tags from the group to kept photos
+- **Rating**: Apply highest rating from the group
+- **Description**: Merge descriptions (deduplicated line by line)
+- **Location**: Apply most common GPS coordinates
+- **Visibility**: Apply strictest visibility setting (locked > hidden > archive > timeline)
+
+**How It Works:**
+
+1. **Database Update**: Writes merged metadata directly to Immich PostgreSQL database
+2. **XMP Sidecar**: Creates/updates `.xmp` sidecar files alongside kept photos with:
+   - Description, Rating, GPS coordinates, Tags
+   - Prevents Immich's "Refresh Metadata" from overwriting merged values
+3. **Atomic Operation**: All changes (DB + XMP) are committed together; if any step fails, everything rolls back
+
+**Requirements:**
+- **exiftool CLI**: Required for XMP sidecar writing
+  - Docker: Pre-installed
+  - Source install: `brew install exiftool` (macOS) or `apt install libimage-exiftool-perl` (Linux)
+- **File Access**: Deduper needs write permission to photo directories for XMP files
+
+**Important Notes:**
+- **External Libraries**: Configure library paths in Fetch page before using Metadata Merge
+- **Backup XMP**: Existing `.xmp` files are backed up to `.xmp.bak` during merge; restored on failure, removed on success
+- **New XMP Files**: For photos without existing sidecar, Deduper creates new `.xmp` and updates Immich's `sidecarPath`
+- **Immich Sync**: After merge, Immich will read the XMP sidecar on next "Refresh Metadata" without losing merged values
+
+**Troubleshooting:**
+- Check logs at `DEDUP_DATA/logs/` for detailed error messages
+- Common errors:
+  - `exiftool CLI not found`: Install exiftool (see Requirements above)
+  - `File not found`: Configure external library paths in Fetch page
+  - `No write permission`: Ensure Deduper has write access to photo directories
+
+⚠️ **Warning**: This feature writes directly to Immich database and creates XMP sidecar files. Always backup your database and photos before use.
 
 ---
 
@@ -496,7 +504,7 @@ For custom environments and development needs.
 1. **Install Qdrant Server**
    ```bash
    # Install Qdrant using Docker
-   docker run -p 6333:6333 qdrant/qdrant:v1.16.3
+   docker run -p 6333:6333 qdrant/qdrant:v1.17.1
    ```
 
 2. **Clone Source Code**

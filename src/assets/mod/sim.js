@@ -70,13 +70,14 @@ function _selectBestAsset(grpAssets, ausl){
 			isFav: !!ass.isFavorite,
 			hasAlb: !!(ass.ex?.albs?.length),
 			ownerId: ass.ownerId || '',
-			path: ass.originalPath || ''
+			path: ass.originalPath || '',
+			deviceId: ass.deviceId || ''
 		}
 	})
 
 	console.log(`[ausl] Group comparison:`)
 	for ( const m of metrics){
-		console.log(`[ausl]   #${m.aid}: date[${m.dt}] exif[${m.exfCnt}] fsize[${m.fileSz}] dim[${m.dim}] name[${m.nameLen}] type[${m.fileType}] fav[${m.isFav}] alb[${m.hasAlb}] owner[${m.ownerId?.slice(0, 8) || ''}] path[${m.path?.slice(-30) || ''}]`)
+		console.log(`[ausl]   #${m.aid}: date[${m.dt}] exif[${m.exfCnt}] fsize[${m.fileSz}] dim[${m.dim}] name[${m.nameLen}] type[${m.fileType}] fav[${m.isFav}] alb[${m.hasAlb}] owner[${m.ownerId?.slice(0, 8) || ''}] path[${m.path?.slice(-30) || ''}] dev[${m.deviceId}]`)
 	}
 
 	const add = (idx, vals, isMax, weight, label) =>{
@@ -172,6 +173,11 @@ function _selectBestAsset(grpAssets, ausl){
 			const pts = ausl.pth.v * 10
 			scr += pts
 			reasons.push(`Path+${pts}`)
+		}
+		if (ausl.dev?.v > 0 && ausl.dev?.k && m.deviceId === ausl.dev.k) {
+			const pts = ausl.dev.v * 10
+			scr += pts
+			reasons.push(`Device+${pts}`)
 		}
 
 		allScores[m.aid] = {score: scr, reasons}
@@ -280,14 +286,14 @@ function waitForCardsAndUpdate(ids){
 
 function getAutoSelectAuids(assets, ausl){
 	console.log(`[ausl] Starting auto-selection, ausl.on[${ausl?.on}], assets count=${assets?.length || 0}`)
-	console.log(`[ausl] Weights: Earlier[${ausl?.earlier}] Later[${ausl?.later}] ExifRich[${ausl?.exRich}] ExifPoor[${ausl?.exPoor}] BigSize[${ausl?.ofsBig}] SmallSize[${ausl?.ofsSml}] BigDim[${ausl?.dimBig}] SmallDim[${ausl?.dimSml}] SkipLow[${ausl?.skipLow}] AllLive[${ausl?.allLive}] KpEmpty[${ausl?.kpCands}] JPG[${ausl?.typJpg}] PNG[${ausl?.typPng}] HEIC[${ausl?.typHeic}] Fav[${ausl?.fav}] InAlb[${ausl?.inAlb}] User[${ausl?.usr?.k}:${ausl?.usr?.v}] Path[${ausl?.pth?.k}:${ausl?.pth?.v}]`)
+	console.log(`[ausl] Weights: Earlier[${ausl?.earlier}] Later[${ausl?.later}] ExifRich[${ausl?.exRich}] ExifPoor[${ausl?.exPoor}] BigSize[${ausl?.ofsBig}] SmallSize[${ausl?.ofsSml}] BigDim[${ausl?.dimBig}] SmallDim[${ausl?.dimSml}] SkipLow[${ausl?.skipLow}] AllLive[${ausl?.allLive}] KpEmpty[${ausl?.kpCands}] JPG[${ausl?.typJpg}] PNG[${ausl?.typPng}] HEIC[${ausl?.typHeic}] Fav[${ausl?.fav}] InAlb[${ausl?.inAlb}] User[${ausl?.usr?.k}:${ausl?.usr?.v}] Path[${ausl?.pth?.k}:${ausl?.pth?.v}] Dev[${ausl?.dev?.k}:${ausl?.dev?.v}]`)
 
 	window.auslReasons = {}
 	window.auslLogs = {}
 
 	if (!ausl?.on || !assets?.length) return []
 
-	const hasActive = ausl.earlier > 0 || ausl.later > 0 || ausl.exRich > 0 || ausl.exPoor > 0 || ausl.ofsBig > 0 || ausl.ofsSml > 0 || ausl.dimBig > 0 || ausl.dimSml > 0 || ausl.namLon > 0 || ausl.namSht > 0 || ausl.typJpg > 0 || ausl.typPng > 0 || ausl.typHeic > 0 || ausl.fav > 0 || ausl.inAlb > 0 || ausl.usr?.v > 0 || ausl.pth?.v > 0
+	const hasActive = ausl.earlier > 0 || ausl.later > 0 || ausl.exRich > 0 || ausl.exPoor > 0 || ausl.ofsBig > 0 || ausl.ofsSml > 0 || ausl.dimBig > 0 || ausl.dimSml > 0 || ausl.namLon > 0 || ausl.namSht > 0 || ausl.typJpg > 0 || ausl.typPng > 0 || ausl.typHeic > 0 || ausl.fav > 0 || ausl.inAlb > 0 || ausl.usr?.v > 0 || ausl.pth?.v > 0 || ausl.dev?.v > 0
 
 	if (!hasActive) {
 		console.log(`[ausl] No active weights, skipping`)
