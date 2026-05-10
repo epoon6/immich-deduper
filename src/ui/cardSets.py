@@ -70,7 +70,7 @@ optMaxItems = []
 for i in [10, 50, 100, 200, 300, 500, 1000]: optMaxItems.append({"label": f"{i}", "value": i})
 
 optMaxGroups = []
-for i in [2, 5, 10, 20, 25, 50, 100]: optMaxGroups.append({"label": f"{i}", "value": i})
+for i in [2, 5, 10, 20, 25, 50, 100, 200, 500, 1000]: optMaxGroups.append({"label": f"{i}", "value": i})
 
 optWeights = []
 for i in range(5): optWeights.append({"label": f"{i}", "value": i})
