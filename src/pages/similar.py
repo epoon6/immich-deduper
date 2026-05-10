@@ -72,6 +72,7 @@ class k:
 	btnSelectMns = 'sim-btn-SelectMns'
 
 	btnFind = "sim-btn-fnd"
+	btnAutoAll = "sim-btn-autoAll"
 	btnClear = "sim-btn-clear"
 	btnReset = "sim-btn-reset"
 	btnRmSel = "sim-btn-RmSel"
@@ -138,7 +139,15 @@ def layout(autoId=None):
 							htm.Br(),
 							htm.Small("No similar found → auto-mark resolved"),
 						], id=k.btnFind, color="primary", className="w-100", disabled=True),
-					], width=6),
+					], width=4),
+
+					dbc.Col([
+						dbc.Button([
+							htm.Span("Auto Find & Process All"),
+							htm.Br(),
+							htm.Small("Continuously find + resolve until done"),
+						], id=k.btnAutoAll, color="info", className="w-100", disabled=True),
+					], width=4),
 
 					dbc.Col([
 						dbc.Button("Clear record & Keep resolved", id=k.btnClear, color="danger me-1", className="w-100 mb-1", disabled=True),
@@ -147,7 +156,7 @@ def layout(autoId=None):
 							htm.Br(),
 							htm.Small("re-search auto-resolved"),
 						], id=k.btnReset, color="danger", className="w-100", disabled=True),
-					], width=6, className="text-end"),
+					], width=4, className="text-end"),
 				], className="mt-3"),
 
 			], width=7),
@@ -536,6 +545,7 @@ ccbk(
 @cbk(
 	[
 		out(k.btnFind, "disabled"),
+		out(k.btnAutoAll, "disabled"),
 		out(k.btnClear, "disabled"),
 		out(k.btnReset, "disabled"),
 		out(k.btnOkAll, "disabled"),
@@ -570,6 +580,7 @@ def sim_UpdateButtons(dta_now, dta_ste, dta_cnt, dta_tsk):
 	cntNo = cnt.ass - cnt.simOk if cnt else 0
 	cntPn = cnt.simPnd if cnt else 0
 	disFind = cntNo <= 0 or (cntPn >= cntNo) or isTaskRunning
+	disAutoAll = cntNo <= 0 or isTaskRunning
 
 	cntSrchd = db.pics.countHasSimIds(isOk=0) if not isTaskRunning else 0
 	disClear = cntSrchd <= 0 or isTaskRunning
@@ -589,7 +600,7 @@ def sim_UpdateButtons(dta_now, dta_ste, dta_cnt, dta_tsk):
 
 	# lg.info(f"[sim:UpdBtns] disFind[{disFind}]")
 
-	return disFind, disClear, disReset, disOk, disDel, disRm, disRS, disExport
+	return disFind, disAutoAll, disClear, disReset, disOk, disDel, disRm, disRS, disExport
 
 
 #------------------------------------------------------------------------
@@ -646,6 +657,7 @@ def sim_OnSwitchViewGroup(clks, dta_now):
 	],
 	[
 		inp(k.btnFind, "n_clicks"),
+		inp(k.btnAutoAll, "n_clicks"),
 		inp(k.btnClear, "n_clicks"),
 		inp(k.btnReset, "n_clicks"),
 		inp(k.btnRmSel, "n_clicks"),
@@ -668,11 +680,11 @@ def sim_OnSwitchViewGroup(clks, dta_now):
 	prevent_initial_call=True
 )
 def sim_RunModal(
-	clk_fnd, clk_clr, clk_rst, clk_rm, clk_rs, clk_ok, clk_ra,
+	clk_fnd, clk_autoAll, clk_clr, clk_rst, clk_rm, clk_rs, clk_ok, clk_ra,
 	dta_now, dta_cnt, dta_mdl, dta_tsk, dta_nfy, dta_ste,
 	nchkOkAll, nchkRmSel, ncRS, ncRA
 ):
-	if not clk_fnd and not clk_clr and not clk_rst and not clk_rm and not clk_rs and not clk_ok and not clk_ra:
+	if not clk_fnd and not clk_autoAll and not clk_clr and not clk_rst and not clk_rm and not clk_rs and not clk_ok and not clk_ra:
 		lg.info(f"[sim:RunModal] non clicked")
 		return noUpd.by(5)
 
@@ -876,6 +888,21 @@ def sim_RunModal(
 			# only find auto trigger tsk
 			retTsk = tsk
 			retNow = now
+	#------------------------------------------------------------------------
+	elif trgId == k.btnAutoAll:
+		if cnt.vec <= 0:
+			nfy.error("No vector data to process")
+			return noUpd.by(5).upd(0, [nfy, retNow, mdl, retTsk, retSte])
+
+		mdl.reset()
+		mdl.id = ks.pg.similar
+		mdl.cmd = ks.cmd.sim.autoAll
+		tsk = mdl.mkTsk()
+		mdl.reset()
+
+		lg.info(f"[sim:autoAll] Starting continuous auto find & process")
+
+		retTsk = tsk
 
 
 	lg.info(f"[similar] modal[{mdl.id}] cmd[{mdl.cmd}]")
@@ -1283,6 +1310,107 @@ def sim_OnAutoExec(trigger, dta_now, dta_ste, dta_nfy):
 
 
 #========================================================================
+# Auto Find & Process All (continuous mode)
+#========================================================================
+def _groupAssetsByMuodId(assets):
+	groups = {}
+	for a in assets:
+		gid = (a.vw.muodId if a.vw and a.vw.muodId else a.autoId)
+		groups.setdefault(gid, []).append(a)
+	return groups
+
+
+def _selectBestAutoIds(assets: list[models.Asset]) -> list[int]:
+	a = db.dto.ausl
+	if not a.on or not assets:
+		return [assets[0].autoId] if assets else []
+
+	scores = {}
+	for ass in assets:
+		exif = ass.jsonExif
+		scores[ass.autoId] = 0
+		dt = exif.dateTimeOriginal if exif else None
+		if not dt: dt = ass.fileCreatedAt
+
+		dates = [a.fileCreatedAt or (a.jsonExif.dateTimeOriginal if a.jsonExif else None) for a in assets]
+		dates = [d for d in dates if d]
+		if dt and dates and len(set(str(d)[:10] for d in dates)) > 1:
+			sorted_dates = sorted(set(str(d)[:10] for d in dates))
+			if a.earlier > 0 and str(dt)[:10] == sorted_dates[0]:
+				scores[ass.autoId] += a.earlier * 10
+
+		if exif:
+			exif_cnt = len([f for f in ['dateTimeOriginal', 'modifyDate', 'make', 'model', 'lensModel', 'fNumber', 'focalLength', 'exposureTime', 'iso', 'latitude', 'longitude', 'city', 'state', 'country', 'description', 'exifImageWidth', 'exifImageHeight', 'fileSizeInByte'] if getattr(exif, f, None) is not None])
+			all_exif_cnts = [len([f for f in ['dateTimeOriginal', 'modifyDate', 'make', 'model', 'lensModel', 'fNumber', 'focalLength', 'exposureTime', 'iso', 'latitude', 'longitude', 'city', 'state', 'country', 'description', 'exifImageWidth', 'exifImageHeight', 'fileSizeInByte'] if getattr(a.jsonExif, f, None) is not None]) if a.jsonExif else 0 for a in assets]
+			if a.exRich > 0 and max(all_exif_cnts) > min(all_exif_cnts) and exif_cnt == max(all_exif_cnts):
+				scores[ass.autoId] += a.exRich * 10
+
+		fsize = (exif.fileSizeInByte if exif else 0) or 0
+		all_fsizes = [(a.jsonExif.fileSizeInByte if a.jsonExif else 0) or 0 for a in assets]
+		if a.ofsBig > 0 and max(all_fsizes) > min(all_fsizes) and fsize == max(all_fsizes):
+			scores[ass.autoId] += a.ofsBig * 10
+
+		name_len = len(ass.originalFileName or '')
+		all_name_lens = [len(a.originalFileName or '') for a in assets]
+		if a.namLon > 0 and max(all_name_lens) > min(all_name_lens) and name_len == max(all_name_lens):
+			scores[ass.autoId] += a.namLon * 10
+
+		ft = (ass.originalFileName or '').lower().split('.')[-1] if ass.originalFileName else ''
+		if a.typJpg > 0 and ft in ['jpg', 'jpeg']:
+			scores[ass.autoId] += a.typJpg * 10
+
+		if a.fav > 0 and ass.isFavorite:
+			scores[ass.autoId] += a.fav * 10
+
+	best = max(scores, key=lambda aid: scores[aid]) if scores else assets[0].autoId
+	return [best]
+
+
+def sim_AutoFindProcess(doReport: IFnProg, sto: models.ITaskStore):
+	nfy, now = sto.nfy, sto.now
+
+	doReport(5, "Starting continuous auto find & process...")
+
+	sto2, msg = sim_FindSimilar(doReport, sto)
+	sto = sto2
+
+	if not now.sim.assCur:
+		nfy.info("Auto Find & Process All: No more duplicates found. Done!")
+		return sto, "No more duplicates"
+
+	doReport(70, f"Found {len(now.sim.assCur)} assets, auto-selecting best...")
+
+	groups = _groupAssetsByMuodId(now.sim.assCur)
+	selectedIds = set()
+	for grp_assets in groups.values():
+		best = _selectBestAutoIds(grp_assets)
+		selectedIds.update(best)
+
+	sto.ste.selectedIds = selectedIds
+	lg.info(f"[sim:autoAll] selected {len(selectedIds)} from {len(now.sim.assCur)} assets across {len(groups)} groups")
+
+	doReport(85, f"Queuing resolve action for {len(selectedIds)} selected...")
+
+	mdl = models.Mdl()
+	mdl.id = ks.pg.similar
+	mdl.cmd = ks.cmd.sim.selOk
+	nextSelOk = mdl.mkTsk()
+
+	mdl2 = models.Mdl()
+	mdl2.id = ks.pg.similar
+	mdl2.cmd = ks.cmd.sim.autoAll
+	nextAutoAll = mdl2.mkTsk()
+
+	sto.tsk.nexts.append(nextSelOk)
+	sto.tsk.nexts.append(nextAutoAll)
+
+	doReport(100, f"Auto find & process loop: found {len(now.sim.assCur)}, selected {len(selectedIds)}")
+	nfy.success(f"Auto: found {len(now.sim.assCur)} assets, selected {len(selectedIds)}, queued for resolution")
+
+	return sto, msg
+
+
+#========================================================================
 # Set up global functions
 #========================================================================
 mapFns[ks.cmd.sim.fnd] = sim_FindSimilar
@@ -1292,3 +1420,4 @@ mapFns[ks.cmd.sim.selOk] = sim_SelectedResolve
 mapFns[ks.cmd.sim.selRm] = sim_SelectedDelete
 mapFns[ks.cmd.sim.allOk] = sim_AllResolve
 mapFns[ks.cmd.sim.allRm] = sim_AllDelete
+mapFns[ks.cmd.sim.autoAll] = sim_AutoFindProcess

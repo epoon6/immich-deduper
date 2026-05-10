@@ -140,6 +140,7 @@ class cmds:
 		selRm = co.tit('sim_selRm', desc='Delete selected assets')
 		allOk = co.tit('sim_allOk', desc='Resolve All assets')
 		allRm = co.tit('sim_allRm', desc='Delete All assets')
+		autoAll = co.tit('sim_autoAll', desc='Auto find and process all similar')
 	class view(co.to): assDel = co.tit('view_AssDel',desc='Delete asset')
 
 class ks:
