@@ -152,6 +152,7 @@ class DtoSets:
 	thMin = AutoDbField('simMin', float, 0.93)
 
 	autoNext = AutoDbField('autoNext', bool, True)
+	autoExec = AutoDbField('autoExec', bool, False)
 	showGridInfo = AutoDbField('showGridInfo', bool, True)
 
 	rtree = AutoDbField('simRtree', bool, False)

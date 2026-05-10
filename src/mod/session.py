@@ -34,6 +34,7 @@ def render():
 	sys: models.Sys = models.Sys()
 	sets: models.Sets = models.Sets()
 	sets.ausl = dto.ausl.raw() #type: ignore
+	sets.autoExec = dto.autoExec
 
 	cnt.refreshFromDB()
 

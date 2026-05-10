@@ -65,4 +65,5 @@ class Ste(BaseDictModel):
 @dataclass
 class Sets(BaseDictModel):
     ausl: Ausl = field(default_factory=Ausl)
+    autoExec: bool = False
 

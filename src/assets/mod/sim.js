@@ -232,7 +232,7 @@ function cleanup(){
 	}
 }
 
-function waitForCardsAndUpdate(ids){
+function waitForCardsAndUpdate(ids, assets, setsData){
 	cleanup()
 
 	async function doUpdate(){
@@ -244,6 +244,13 @@ function waitForCardsAndUpdate(ids){
 		dsh.syncSte(Ste.cntTotal, Ste.selectedIds)
 		if (ids.length > 0) notify(`[Auto Selection] selected ${realCnt} items`, 'success')
 		console.log(`[Ste] Auto-selected ${realCnt}/${ids.length} items`)
+
+		// Auto-execute: keep selected, delete others
+		if (setsData?.autoExec && ids.length > 0 && assets && ids.length < assets.length) {
+			const othersCount = assets.length - ids.length
+			console.log(`[autoExec] keep ${ids.length}, delete ${othersCount}`)
+			setTimeout(() => dsh.syncStore('sim-store-auto-exec', Date.now()), 600)
+		}
 	}
 
 	if (!ids.length) {
@@ -553,7 +560,7 @@ window.dash_clientside.similar = {
 
 				for ( const autoId of ids ) Ste.selectedIds.add(autoId)
 
-				waitForCardsAndUpdate(ids)
+				waitForCardsAndUpdate(ids, assets, sets_data)
 			}
 		}
 		return dash_clientside.no_update

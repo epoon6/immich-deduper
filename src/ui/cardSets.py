@@ -16,6 +16,7 @@ from mod import models
 class k:
 	threshold = "thresholds"
 	autoNext = "autoNext"
+	autoExec = "autoExec"
 	showGridInfo = "showGridInfo"
 	simRtree = "simRtree"
 	simMaxItems = "simMaxItems"
@@ -295,6 +296,7 @@ def renderCard():
 				htm.Label("Find Settings", className="txt-sm"),
 				htm.Div([
 					dbc.Checkbox(id=k.id(k.autoNext), label="Auto Find Next", value=db.dto.autoNext),
+					dbc.Checkbox(id=k.id(k.autoExec), label="Auto Execute (Keep Selected)", value=db.dto.autoExec),
 					dbc.Checkbox(id=k.id(k.showGridInfo), label="Show Grid Info", value=db.dto.showGridInfo),
 					htm.Div(id={"type": "dummy", "id": "grid-info"}, style={"display": "none"}),
 
@@ -426,6 +428,7 @@ def renderCard():
 	],
 	inp(k.id(k.threshold), "value"),
 	inp(k.id(k.autoNext), "value"),
+	inp(k.id(k.autoExec), "value"),
 	inp(k.id(k.showGridInfo), "value"),
 	inp(k.id(k.simRtree), "value"),
 	inp(k.id(k.simMaxItems), "value"),
@@ -439,7 +442,7 @@ def renderCard():
 	ste(ks.sto.now, "data"),
 	prevent_initial_call=True
 )
-def settings_OnUpd(th, auNxt, shGdInfo, rtree,  maxItems, pathFilter, muodOn, muodMxGs, gDt, gW, gH, gFsz, dta_now):
+def settings_OnUpd(th, auNxt, auExec, shGdInfo, rtree,  maxItems, pathFilter, muodOn, muodMxGs, gDt, gW, gH, gFsz, dta_now):
 	retNow = noUpd
 
 	trigId = getTrgId()
@@ -450,6 +453,7 @@ def settings_OnUpd(th, auNxt, shGdInfo, rtree,  maxItems, pathFilter, muodOn, mu
 	db.dto.thMin = co.vad.float(th, 0.93, 0.50, 0.999)
 
 	db.dto.autoNext = auNxt
+	db.dto.autoExec = auExec
 	db.dto.rtreeMax = maxItems
 	db.dto.pathFilter = pathFilter or ''
 

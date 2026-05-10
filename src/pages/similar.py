@@ -106,6 +106,7 @@ def layout(autoId=None):
 	return ui.renderBody([
 		#====== top start =======================================================
 		dcc.Store(id=k.assUrl, data=autoId),
+		dcc.Store(id='sim-store-auto-exec', data=0),
 
 		# 客戶端選擇狀態管理的 dummy 元素
 		htm.Div(id={"type": "dummy-output", "id": "selection"}, style={"display": "none"}),
@@ -1237,6 +1238,48 @@ def sim_AllDelete(doReport: IFnProg, sto: models.ITaskStore):
 
 		raise RuntimeError(msg)
 
+
+#========================================================================
+# Auto-execute callback (triggered when auto-selection completes)
+#========================================================================
+@cbk(
+	[
+		out(ks.sto.nfy, "data", allow_duplicate=True),
+		out(ks.sto.now, "data", allow_duplicate=True),
+		out(ks.sto.mdl, "data", allow_duplicate=True),
+		out(ks.sto.tsk, "data", allow_duplicate=True),
+		out(ks.sto.ste, "data", allow_duplicate=True),
+	],
+	inp('sim-store-auto-exec', 'data'),
+	[
+		ste(ks.sto.now, "data"),
+		ste(ks.sto.ste, "data"),
+		ste(ks.sto.nfy, "data"),
+	],
+	prevent_initial_call=True
+)
+def sim_OnAutoExec(trigger, dta_now, dta_ste, dta_nfy):
+	if not trigger: return noUpd.by(5)
+
+	now = Now.fromDic(dta_now)
+	ste = Ste.fromDic(dta_ste) if dta_ste else Ste()
+	nfy = Nfy.fromDic(dta_nfy)
+
+	ass = ste.getSelected(now.sim.assCur)
+	assOthers = [a for a in now.sim.assCur if a.autoId not in {s.autoId for s in ass}]
+
+	if not ass or not assOthers:
+		lg.info(f"[sim:autoExec] Invalid: selections empty or no others")
+		return noUpd.by(5)
+
+	mdl = Mdl()
+	mdl.id = ks.pg.similar
+	mdl.cmd = ks.cmd.sim.selOk
+	tsk = mdl.mkTsk()
+	mdl.reset()
+
+	lg.info(f"[sim:autoExec] keep[{len(ass)}] delete[{len(assOthers)}]")
+	return noUpd.by(5).upd(0, [nfy, now, mdl, tsk, ste])
 
 
 #========================================================================
