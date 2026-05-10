@@ -28,7 +28,7 @@ def ver() -> tuple[bool, list[str]]:
 
 		if envs.offline: return True, [verL, '(Offline - version check skipped)']
 
-		url = "https://github.com/RazgrizHsu/immich-deduper/blob/main/pyproject.toml"
+		url = "https://github.com/epoon6/immich-deduper/blob/main/pyproject.toml"
 
 		try:
 			txt = immich.getGithubRaw(url)
