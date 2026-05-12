@@ -1369,7 +1369,16 @@ def _selectBestAutoIds(assets: list[models.Asset]) -> list[int]:
 def sim_AutoFindProcess(doReport: IFnProg, sto: models.ITaskStore):
 	nfy, now = sto.nfy, sto.now
 
-	doReport(5, "Starting continuous auto find & process...")
+	doReport(5, "Finding next batch of unresolved duplicates...")
+
+	asses = db.pics.getAnyNonSim()
+	if not asses:
+		nfy.info("Auto Find & Process All: No more duplicates found. Done!")
+		return sto, "No more duplicates"
+
+	dstAss = asses[0]
+	now.sim.assAid = dstAss.autoId
+	lg.info(f"[sim:autoAll] searching from #{dstAss.autoId}")
 
 	sto2, msg = sim_FindSimilar(doReport, sto)
 	sto = sto2
